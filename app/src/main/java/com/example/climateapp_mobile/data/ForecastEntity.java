@@ -6,7 +6,6 @@ public class ForecastEntity {
     public String forecastDate;
     public double tempMin;
     public double tempMax;
-    public int humidity;
     public String description;
     public String iconCode;
     public long timestamp;

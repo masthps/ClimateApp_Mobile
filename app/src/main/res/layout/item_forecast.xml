@@ -2,38 +2,34 @@
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
+    android:gravity="center_vertical"
     android:orientation="horizontal"
-    android:paddingVertical="12dp"
     android:paddingHorizontal="8dp"
-    android:gravity="center_vertical">
+    android:paddingVertical="12dp">
 
     <TextView
         android:id="@+id/tv_forecast_day"
         android:layout_width="0dp"
         android:layout_height="wrap_content"
         android:layout_weight="1"
-        android:text="Segunda"
-        android:textSize="15sp"
-        android:textColor="#37474F"/>
+        android:textColor="#37474F"
+        android:textSize="15sp" />
 
     <TextView
         android:id="@+id/tv_forecast_desc"
         android:layout_width="0dp"
         android:layout_height="wrap_content"
         android:layout_weight="2"
-        android:text="Chuva"
-        android:textSize="14sp"
-        android:textColor="#78909C"
-        android:gravity="center"/>
+        android:gravity="center"
+        android:textColor="#607D8B"
+        android:textSize="14sp" />
 
     <TextView
         android:id="@+id/tv_forecast_temp"
         android:layout_width="0dp"
         android:layout_height="wrap_content"
         android:layout_weight="1"
-        android:text="24° / 19°"
-        android:textSize="14sp"
+        android:gravity="end"
         android:textColor="#37474F"
-        android:gravity="end"/>
-
+        android:textSize="14sp" />
 </LinearLayout>
