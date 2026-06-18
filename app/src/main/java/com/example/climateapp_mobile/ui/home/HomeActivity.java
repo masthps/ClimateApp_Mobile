@@ -1,6 +1,11 @@
 package com.example.climateapp_mobile.ui.home;
 
 import android.os.Bundle;
+import android.view.View;
+import android.view.inputmethod.EditorInfo;
+import android.widget.Button;
+import android.widget.EditText;
+import android.widget.ProgressBar;
 import android.widget.TextView;
 
 import androidx.appcompat.app.AppCompatActivity;
@@ -9,66 +14,122 @@ import androidx.recyclerview.widget.RecyclerView;
 
 import com.example.climateapp_mobile.R;
 import com.example.climateapp_mobile.data.ForecastEntity;
+import com.example.climateapp_mobile.data.WeatherEntity;
+import com.example.climateapp_mobile.repository.WeatherRepository;
 
-import java.util.ArrayList;
 import java.util.List;
 
 public class HomeActivity extends AppCompatActivity {
 
-    private TextView tvCityName, tvTemperature, tvDescription,
-            tvFeelsLike, tvHumidity, tvWind;
-    private RecyclerView rvForecast;
+    private EditText citySearch;
+    private Button searchButton;
+    private ProgressBar progressBar;
+    private TextView errorText;
+    private TextView cityName;
+    private TextView temperature;
+    private TextView description;
+    private TextView feelsLike;
+    private TextView humidity;
+    private TextView wind;
+    private RecyclerView forecastList;
+    private View currentWeatherCard;
+    private View forecastCard;
+
+    private WeatherRepository repository;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_home);
 
+        repository = new WeatherRepository(this);
         bindViews();
-        loadMockCurrentWeather();
-        loadMockForecast();
+        setupSearch();
+        forecastList.setLayoutManager(new LinearLayoutManager(this));
+        citySearch.setText(R.string.default_city);
+        searchWeather();
     }
 
     private void bindViews() {
-        tvCityName    = findViewById(R.id.tv_city_name);
-        tvTemperature = findViewById(R.id.tv_temperature);
-        tvDescription = findViewById(R.id.tv_description);
-        tvFeelsLike   = findViewById(R.id.tv_feels_like);
-        tvHumidity    = findViewById(R.id.tv_humidity);
-        tvWind        = findViewById(R.id.tv_wind);
-        rvForecast    = findViewById(R.id.rv_forecast);
+        citySearch = findViewById(R.id.et_city_search);
+        searchButton = findViewById(R.id.btn_search);
+        progressBar = findViewById(R.id.progress_bar);
+        errorText = findViewById(R.id.tv_error);
+        cityName = findViewById(R.id.tv_city_name);
+        temperature = findViewById(R.id.tv_temperature);
+        description = findViewById(R.id.tv_description);
+        feelsLike = findViewById(R.id.tv_feels_like);
+        humidity = findViewById(R.id.tv_humidity);
+        wind = findViewById(R.id.tv_wind);
+        forecastList = findViewById(R.id.rv_forecast);
+        currentWeatherCard = findViewById(R.id.card_current);
+        forecastCard = findViewById(R.id.card_forecast);
     }
 
-    private void loadMockCurrentWeather() {
-        tvCityName.setText("São Paulo, BR");
-        tvTemperature.setText("28°C");
-        tvDescription.setText("Parcialmente nublado");
-        tvFeelsLike.setText("Sensação\n30°C");
-        tvHumidity.setText("Umidade\n65%");
-        tvWind.setText("Vento\n12 km/h");
+    private void setupSearch() {
+        searchButton.setOnClickListener(view -> searchWeather());
+        citySearch.setOnEditorActionListener((view, actionId, event) -> {
+            if (actionId == EditorInfo.IME_ACTION_SEARCH) {
+                searchWeather();
+                return true;
+            }
+            return false;
+        });
     }
 
-    private void loadMockForecast() {
-        List<ForecastEntity> mockList = new ArrayList<>();
+    private void searchWeather() {
+        String city = citySearch.getText().toString().trim();
+        if (city.isEmpty()) {
+            showError(getString(R.string.error_empty_city));
+            return;
+        }
 
-        mockList.add(makeForecast("Segunda",  "Chuva",           24, 19));
-        mockList.add(makeForecast("Terça",    "Ensolarado",      30, 22));
-        mockList.add(makeForecast("Quarta",   "Nublado",         26, 20));
-        mockList.add(makeForecast("Quinta",   "Parcial. nublado",28, 21));
-        mockList.add(makeForecast("Sexta",    "Trovoada",        22, 18));
+        showLoading(true);
+        errorText.setVisibility(View.GONE);
+        repository.fetchWeather(city, new WeatherRepository.WeatherCallback() {
+            @Override
+            public void onSuccess(WeatherEntity current, List<ForecastEntity> forecasts) {
+                runOnUiThread(() -> showWeather(current, forecasts));
+            }
 
-        ForecastAdapter adapter = new ForecastAdapter(mockList);
-        rvForecast.setLayoutManager(new LinearLayoutManager(this));
-        rvForecast.setAdapter(adapter);
+            @Override
+            public void onError(String message) {
+                runOnUiThread(() -> {
+                    showLoading(false);
+                    showError(message);
+                });
+            }
+        });
     }
 
-    private ForecastEntity makeForecast(String day, String desc,
-                                        double max, double min) {
-        ForecastEntity f = new ForecastEntity();
-        f.forecastDate = day;
-        f.description  = desc;
-        f.tempMax      = max;
-        f.tempMin      = min;
-        return f;
+    private void showWeather(WeatherEntity current, List<ForecastEntity> forecasts) {
+        showLoading(false);
+        cityName.setText(getString(R.string.city_country, current.cityName, current.countryCode));
+        temperature.setText(getString(R.string.temperature, Math.round(current.temperature)));
+        description.setText(current.description);
+        feelsLike.setText(getString(R.string.feels_like, Math.round(current.feelsLike)));
+        humidity.setText(getString(R.string.humidity, current.humidity));
+        wind.setText(getString(R.string.wind, Math.round(current.windSpeed)));
+        forecastList.setAdapter(new ForecastAdapter(forecasts));
+
+        currentWeatherCard.setVisibility(View.VISIBLE);
+        forecastCard.setVisibility(View.VISIBLE);
+        errorText.setVisibility(View.GONE);
+    }
+
+    private void showError(String message) {
+        errorText.setText(message);
+        errorText.setVisibility(View.VISIBLE);
+    }
+
+    private void showLoading(boolean loading) {
+        progressBar.setVisibility(loading ? View.VISIBLE : View.GONE);
+        searchButton.setEnabled(!loading);
+    }
+
+    @Override
+    protected void onDestroy() {
+        repository.close();
+        super.onDestroy();
     }
 }

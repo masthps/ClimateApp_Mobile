@@ -11,14 +11,17 @@ import androidx.recyclerview.widget.RecyclerView;
 import com.example.climateapp_mobile.R;
 import com.example.climateapp_mobile.data.ForecastEntity;
 
+import java.text.ParseException;
+import java.text.SimpleDateFormat;
 import java.util.List;
+import java.util.Locale;
 
 public class ForecastAdapter extends RecyclerView.Adapter<ForecastAdapter.ViewHolder> {
 
-    private final List<ForecastEntity> forecastList;
+    private final List<ForecastEntity> forecasts;
 
-    public ForecastAdapter(List<ForecastEntity> forecastList) {
-        this.forecastList = forecastList;
+    public ForecastAdapter(List<ForecastEntity> forecasts) {
+        this.forecasts = forecasts;
     }
 
     @NonNull
@@ -31,25 +34,41 @@ public class ForecastAdapter extends RecyclerView.Adapter<ForecastAdapter.ViewHo
 
     @Override
     public void onBindViewHolder(@NonNull ViewHolder holder, int position) {
-        ForecastEntity item = forecastList.get(position);
-        holder.tvDay.setText(item.forecastDate);
-        holder.tvDesc.setText(item.description);
-        holder.tvTemp.setText(item.tempMin + "° / " + item.tempMax + "°");
+        ForecastEntity forecast = forecasts.get(position);
+        holder.day.setText(formatDate(forecast.forecastDate));
+        holder.description.setText(forecast.description);
+        holder.temperature.setText(holder.itemView.getContext().getString(
+                R.string.forecast_temperature,
+                Math.round(forecast.tempMin),
+                Math.round(forecast.tempMax)
+        ));
     }
 
     @Override
     public int getItemCount() {
-        return forecastList.size();
+        return forecasts.size();
     }
 
-    public static class ViewHolder extends RecyclerView.ViewHolder {
-        TextView tvDay, tvDesc, tvTemp;
+    private String formatDate(String date) {
+        SimpleDateFormat apiFormat = new SimpleDateFormat("yyyy-MM-dd", Locale.ROOT);
+        SimpleDateFormat displayFormat = new SimpleDateFormat("EEE", new Locale("pt", "BR"));
+        try {
+            return displayFormat.format(apiFormat.parse(date));
+        } catch (ParseException exception) {
+            return date;
+        }
+    }
 
-        public ViewHolder(@NonNull View itemView) {
+    static class ViewHolder extends RecyclerView.ViewHolder {
+        final TextView day;
+        final TextView description;
+        final TextView temperature;
+
+        ViewHolder(@NonNull View itemView) {
             super(itemView);
-            tvDay  = itemView.findViewById(R.id.tv_forecast_day);
-            tvDesc = itemView.findViewById(R.id.tv_forecast_desc);
-            tvTemp = itemView.findViewById(R.id.tv_forecast_temp);
+            day = itemView.findViewById(R.id.tv_forecast_day);
+            description = itemView.findViewById(R.id.tv_forecast_desc);
+            temperature = itemView.findViewById(R.id.tv_forecast_temp);
         }
     }
 }
