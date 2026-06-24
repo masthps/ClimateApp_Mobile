@@ -44,8 +44,9 @@ public class WeatherRepository {
     public void fetchWeather(String cityName, WeatherCallback callback) {
         executor.execute(() -> {
             WeatherEntity cachedWeather = weatherDao.getCurrentWeather(cityName);
-            if (cachedWeather != null && isCacheValid(cachedWeather.timestamp)) {
-                callback.onSuccess(cachedWeather, weatherDao.getForecasts(cityName), false);
+            List<ForecastEntity> cachedForecasts = weatherDao.getForecasts(cityName);
+            if (cachedWeather != null && !cachedForecasts.isEmpty() && isCacheValid(cachedWeather.timestamp)) {
+                callback.onSuccess(cachedWeather, cachedForecasts, false);
                 return;
             }
 
@@ -153,8 +154,11 @@ public class WeatherRepository {
 
     private void returnCachedDataOrError(String cityName, WeatherCallback callback) {
         WeatherEntity cachedWeather = weatherDao.getCurrentWeather(cityName);
-        if (cachedWeather != null) {
-            callback.onSuccess(cachedWeather, weatherDao.getForecasts(cityName), true);
+        List<ForecastEntity> cachedForecasts = weatherDao.getForecasts(cityName);
+        if (cachedWeather != null && !cachedForecasts.isEmpty()) {
+            callback.onSuccess(cachedWeather, cachedForecasts, true);
+        } else if (cachedWeather != null) {
+            callback.onError("Há dados do clima atual salvos, mas não há previsão de 5 dias disponível offline para esta cidade.");
         } else {
             callback.onError("Sem conexão ou falha na busca. Não há previsão salva para esta cidade.");
         }

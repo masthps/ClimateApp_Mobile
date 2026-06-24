@@ -114,7 +114,9 @@ public class HomeActivity extends AppCompatActivity {
 
         currentWeatherCard.setVisibility(View.VISIBLE);
         forecastCard.setVisibility(View.VISIBLE);
-        if (fromCache) {
+        if (forecasts.isEmpty()) {
+            showError(getString(R.string.empty_forecast));
+        } else if (fromCache) {
             showError(getString(R.string.offline_data_message));
         } else {
             errorText.setVisibility(View.GONE);
