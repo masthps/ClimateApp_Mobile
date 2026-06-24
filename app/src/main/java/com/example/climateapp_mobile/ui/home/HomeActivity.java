@@ -88,8 +88,8 @@ public class HomeActivity extends AppCompatActivity {
         errorText.setVisibility(View.GONE);
         repository.fetchWeather(city, new WeatherRepository.WeatherCallback() {
             @Override
-            public void onSuccess(WeatherEntity current, List<ForecastEntity> forecasts) {
-                runOnUiThread(() -> showWeather(current, forecasts));
+            public void onSuccess(WeatherEntity current, List<ForecastEntity> forecasts, boolean fromCache) {
+                runOnUiThread(() -> showWeather(current, forecasts, fromCache));
             }
 
             @Override
@@ -102,7 +102,7 @@ public class HomeActivity extends AppCompatActivity {
         });
     }
 
-    private void showWeather(WeatherEntity current, List<ForecastEntity> forecasts) {
+    private void showWeather(WeatherEntity current, List<ForecastEntity> forecasts, boolean fromCache) {
         showLoading(false);
         cityName.setText(getString(R.string.city_country, current.cityName, current.countryCode));
         temperature.setText(getString(R.string.temperature, Math.round(current.temperature)));
@@ -114,7 +114,11 @@ public class HomeActivity extends AppCompatActivity {
 
         currentWeatherCard.setVisibility(View.VISIBLE);
         forecastCard.setVisibility(View.VISIBLE);
-        errorText.setVisibility(View.GONE);
+        if (fromCache) {
+            showError(getString(R.string.offline_data_message));
+        } else {
+            errorText.setVisibility(View.GONE);
+        }
     }
 
     private void showError(String message) {
