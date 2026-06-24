@@ -12,6 +12,7 @@
     <string name="forecast_title">PREVISÃO DE 5 DIAS</string>
     <string name="error_empty_city">Digite o nome de uma cidade para buscar.</string>
     <string name="offline_data_message">Sem conexão ou falha na busca. Exibindo a última previsão salva no SQLite.</string>
+    <string name="empty_forecast">Não há previsão de 5 dias disponível para esta cidade.</string>
     <string name="city_country">%1$s, %2$s</string>
     <string name="temperature">%1$d°C</string>
     <string name="feels_like">Sensação\n%1$d°C</string>
