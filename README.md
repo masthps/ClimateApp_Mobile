@@ -1,2 +1,3 @@
 # Projeto Final da Disciplina DPDM
-Esse é um projeto acadêmico acerca a disciplina DPDM da faculdade. O projeto trata-se de uma aplicação mobile de previsão de clima, utilizando algumas API's.
+
+Este é um projeto acadêmico da disciplina DPDM. O projeto consiste em uma aplicação mobile de previsão do tempo que utiliza uma API externa e armazenamento local.

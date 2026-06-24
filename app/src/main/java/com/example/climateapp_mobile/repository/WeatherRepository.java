@@ -2,191 +2,165 @@ package com.example.climateapp_mobile.repository;
 
 import android.content.Context;
 
+import com.example.climateapp_mobile.api.ApiClient;
+import com.example.climateapp_mobile.api.GeocodingApi;
+import com.example.climateapp_mobile.api.WeatherApi;
 import com.example.climateapp_mobile.data.ForecastEntity;
+import com.example.climateapp_mobile.data.ForecastResponse;
+import com.example.climateapp_mobile.data.GeocodingResponse;
 import com.example.climateapp_mobile.data.WeatherDao;
 import com.example.climateapp_mobile.data.WeatherEntity;
+import com.example.climateapp_mobile.util.WeatherUtils;
 
-import org.json.JSONArray;
-import org.json.JSONObject;
-
-import java.io.BufferedReader;
-import java.io.InputStreamReader;
-import java.net.HttpURLConnection;
-import java.net.URL;
-import java.net.URLEncoder;
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Locale;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
+import retrofit2.Response;
+
 public class WeatherRepository {
 
+    private static final long CACHE_DURATION_MS = 30 * 60 * 1000L;
+
+    private final WeatherDao weatherDao;
+    private final WeatherApi weatherApi;
+    private final GeocodingApi geocodingApi;
+    private final ExecutorService executor = Executors.newSingleThreadExecutor();
+
     public interface WeatherCallback {
-        void onSuccess(WeatherResult result);
+        void onSuccess(WeatherEntity current, List<ForecastEntity> forecasts);
 
         void onError(String message);
     }
 
-    public static class WeatherResult {
-        public WeatherEntity currentWeather;
-        public List<ForecastEntity> forecasts;
-        public boolean fromCache;
-    }
-
-    private static final String GEOCODING_URL = "https://geocoding-api.open-meteo.com/v1/search";
-    private static final String FORECAST_URL = "https://api.open-meteo.com/v1/forecast";
-
-    private final WeatherDao weatherDao;
-    private final ExecutorService executor = Executors.newSingleThreadExecutor();
-
     public WeatherRepository(Context context) {
-        this.weatherDao = new WeatherDao(context);
+        weatherDao = new WeatherDao(context);
+        weatherApi = ApiClient.getWeatherClient().create(WeatherApi.class);
+        geocodingApi = ApiClient.getGeocodingClient().create(GeocodingApi.class);
     }
 
-    public void loadWeather(String cityName, WeatherCallback callback) {
+    public void fetchWeather(String cityName, WeatherCallback callback) {
         executor.execute(() -> {
-            String searchCity = cityName.trim();
+            WeatherEntity cachedWeather = weatherDao.getCurrentWeather(cityName);
+            if (cachedWeather != null && isCacheValid(cachedWeather.timestamp)) {
+                callback.onSuccess(cachedWeather, weatherDao.getForecasts(cityName));
+                return;
+            }
 
             try {
-                WeatherResult onlineResult = fetchOnlineWeather(searchCity);
-                weatherDao.insertOrReplaceCurrentWeather(onlineResult.currentWeather);
-                weatherDao.insertForecasts(onlineResult.forecasts);
-                callback.onSuccess(onlineResult);
-            } catch (Exception e) {
-                WeatherResult offlineResult = fetchOfflineWeather(searchCity);
-
-                if (offlineResult.currentWeather != null || !offlineResult.forecasts.isEmpty()) {
-                    offlineResult.fromCache = true;
-                    callback.onSuccess(offlineResult);
-                } else {
-                    callback.onError("Não foi possível buscar a previsão e não há dados salvos para esta cidade.");
+                GeocodingResponse.Location location = fetchLocation(cityName);
+                if (location == null) {
+                    callback.onError("Cidade não encontrada.");
+                    return;
                 }
+
+                ForecastResponse response = fetchForecast(location);
+                if (!isForecastValid(response)) {
+                    callback.onError("A previsão recebida está incompleta.");
+                    return;
+                }
+
+                long timestamp = System.currentTimeMillis();
+                WeatherEntity current = createCurrentWeather(location, response, timestamp);
+                List<ForecastEntity> forecasts = createForecasts(location, response, timestamp);
+
+                weatherDao.insertOrReplaceCurrentWeather(current);
+                weatherDao.insertForecasts(forecasts);
+                callback.onSuccess(current, forecasts);
+            } catch (IOException exception) {
+                returnCachedDataOrError(cityName, callback);
+            } catch (RuntimeException exception) {
+                callback.onError("Não foi possível processar a previsão do tempo.");
             }
         });
     }
 
     public void close() {
-        executor.shutdown();
+        executor.shutdownNow();
     }
 
-    private WeatherResult fetchOnlineWeather(String cityName) throws Exception {
-        JSONObject cityJson = findCity(cityName);
-        double latitude = cityJson.getDouble("latitude");
-        double longitude = cityJson.getDouble("longitude");
-        String countryCode = cityJson.optString("country_code", "");
+    private GeocodingResponse.Location fetchLocation(String cityName) throws IOException {
+        Response<GeocodingResponse> response = geocodingApi.searchCity(cityName, 1, "pt").execute();
+        if (!response.isSuccessful() || response.body() == null
+                || response.body().results == null || response.body().results.isEmpty()) {
+            return null;
+        }
+        return response.body().results.get(0);
+    }
 
-        String forecastUrl = FORECAST_URL +
-                "?latitude=" + latitude +
-                "&longitude=" + longitude +
-                "&current=temperature_2m,relative_humidity_2m,apparent_temperature,weather_code,wind_speed_10m" +
-                "&daily=weather_code,temperature_2m_max,temperature_2m_min" +
-                "&forecast_days=5" +
-                "&timezone=auto";
+    private ForecastResponse fetchForecast(GeocodingResponse.Location location) throws IOException {
+        Response<ForecastResponse> response = weatherApi.getForecast(
+                location.latitude,
+                location.longitude,
+                "temperature_2m,apparent_temperature,relative_humidity_2m,wind_speed_10m,weather_code",
+                "temperature_2m_max,temperature_2m_min,weather_code",
+                "auto",
+                5,
+                "kmh"
+        ).execute();
+        return response.isSuccessful() ? response.body() : null;
+    }
 
-        JSONObject forecastJson = readJson(forecastUrl);
-        JSONObject currentJson = forecastJson.getJSONObject("current");
-        JSONObject dailyJson = forecastJson.getJSONObject("daily");
-        long timestamp = System.currentTimeMillis();
+    private boolean isForecastValid(ForecastResponse response) {
+        if (response == null || response.current == null || response.daily == null
+                || response.daily.time == null || response.daily.tempMax == null
+                || response.daily.tempMin == null
+                || response.daily.weatherCode == null || response.daily.time.isEmpty()) {
+            return false;
+        }
 
-        WeatherEntity currentWeather = new WeatherEntity();
-        currentWeather.cityName = cityName;
-        currentWeather.countryCode = countryCode;
-        currentWeather.temperature = currentJson.getDouble("temperature_2m");
-        currentWeather.feelsLike = currentJson.getDouble("apparent_temperature");
-        currentWeather.humidity = currentJson.getInt("relative_humidity_2m");
-        currentWeather.windSpeed = currentJson.getDouble("wind_speed_10m");
-        currentWeather.iconCode = String.valueOf(currentJson.getInt("weather_code"));
-        currentWeather.description = getWeatherDescription(currentJson.getInt("weather_code"));
-        currentWeather.timestamp = timestamp;
+        int days = response.daily.time.size();
+        return response.daily.tempMax.size() >= days
+                && response.daily.tempMin.size() >= days
+                && response.daily.weatherCode.size() >= days;
+    }
 
+    private WeatherEntity createCurrentWeather(GeocodingResponse.Location location,
+                                               ForecastResponse response,
+                                               long timestamp) {
+        WeatherEntity weather = new WeatherEntity();
+        weather.cityName = location.name;
+        weather.countryCode = location.countryCode;
+        weather.temperature = response.current.temperature;
+        weather.feelsLike = response.current.feelsLike;
+        weather.humidity = response.current.humidity;
+        weather.windSpeed = response.current.windSpeed;
+        weather.description = WeatherUtils.getDescription(response.current.weatherCode);
+        weather.iconCode = String.valueOf(response.current.weatherCode);
+        weather.timestamp = timestamp;
+        return weather;
+    }
+
+    private List<ForecastEntity> createForecasts(GeocodingResponse.Location location,
+                                                 ForecastResponse response,
+                                                 long timestamp) {
         List<ForecastEntity> forecasts = new ArrayList<>();
-        JSONArray dates = dailyJson.getJSONArray("time");
-        JSONArray codes = dailyJson.getJSONArray("weather_code");
-        JSONArray maxTemperatures = dailyJson.getJSONArray("temperature_2m_max");
-        JSONArray minTemperatures = dailyJson.getJSONArray("temperature_2m_min");
-
-        for (int i = 0; i < dates.length(); i++) {
-            int weatherCode = codes.getInt(i);
-
+        for (int index = 0; index < response.daily.time.size(); index++) {
             ForecastEntity forecast = new ForecastEntity();
-            forecast.cityName = cityName;
-            forecast.forecastDate = dates.getString(i);
-            forecast.tempMax = maxTemperatures.getDouble(i);
-            forecast.tempMin = minTemperatures.getDouble(i);
-            forecast.humidity = 0;
-            forecast.iconCode = String.valueOf(weatherCode);
-            forecast.description = getWeatherDescription(weatherCode);
+            forecast.cityName = location.name;
+            forecast.forecastDate = response.daily.time.get(index);
+            forecast.tempMax = response.daily.tempMax.get(index);
+            forecast.tempMin = response.daily.tempMin.get(index);
+            forecast.description = WeatherUtils.getDescription(response.daily.weatherCode.get(index));
+            forecast.iconCode = String.valueOf(response.daily.weatherCode.get(index));
             forecast.timestamp = timestamp;
-
             forecasts.add(forecast);
         }
-
-        WeatherResult result = new WeatherResult();
-        result.currentWeather = currentWeather;
-        result.forecasts = forecasts;
-        result.fromCache = false;
-        return result;
+        return forecasts;
     }
 
-    private WeatherResult fetchOfflineWeather(String cityName) {
-        WeatherResult result = new WeatherResult();
-        result.currentWeather = weatherDao.getCurrentWeather(cityName);
-        result.forecasts = weatherDao.getForecasts(cityName);
-        result.fromCache = true;
-        return result;
-    }
-
-    private JSONObject findCity(String cityName) throws Exception {
-        String encodedCity = URLEncoder.encode(cityName, "UTF-8");
-        String url = GEOCODING_URL + "?name=" + encodedCity + "&count=1&language=pt&format=json";
-        JSONObject json = readJson(url);
-        JSONArray results = json.optJSONArray("results");
-
-        if (results == null || results.length() == 0) {
-            throw new Exception("Cidade não encontrada.");
-        }
-
-        return results.getJSONObject(0);
-    }
-
-    private JSONObject readJson(String urlValue) throws Exception {
-        HttpURLConnection connection = (HttpURLConnection) new URL(urlValue).openConnection();
-        connection.setRequestMethod("GET");
-        connection.setConnectTimeout(10000);
-        connection.setReadTimeout(10000);
-
-        try (BufferedReader reader = new BufferedReader(new InputStreamReader(connection.getInputStream()))) {
-            StringBuilder response = new StringBuilder();
-            String line;
-
-            while ((line = reader.readLine()) != null) {
-                response.append(line);
-            }
-
-            return new JSONObject(response.toString());
-        } finally {
-            connection.disconnect();
+    private void returnCachedDataOrError(String cityName, WeatherCallback callback) {
+        WeatherEntity cachedWeather = weatherDao.getCurrentWeather(cityName);
+        if (cachedWeather != null) {
+            callback.onSuccess(cachedWeather, weatherDao.getForecasts(cityName));
+        } else {
+            callback.onError("Sem conexão e sem dados em cache.");
         }
     }
 
-    private String getWeatherDescription(int code) {
-        if (code == 0) {
-            return "Céu limpo";
-        } else if (code == 1 || code == 2 || code == 3) {
-            return "Parcialmente nublado";
-        } else if (code == 45 || code == 48) {
-            return "Neblina";
-        } else if (code >= 51 && code <= 67) {
-            return "Garoa";
-        } else if (code >= 71 && code <= 77) {
-            return "Neve";
-        } else if (code >= 80 && code <= 82) {
-            return "Chuva";
-        } else if (code >= 95 && code <= 99) {
-            return "Tempestade";
-        }
-
-        return String.format(Locale.getDefault(), "Clima código %d", code);
+    private boolean isCacheValid(long timestamp) {
+        return System.currentTimeMillis() - timestamp < CACHE_DURATION_MS;
     }
 }

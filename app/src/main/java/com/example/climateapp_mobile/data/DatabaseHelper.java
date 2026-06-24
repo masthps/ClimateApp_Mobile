@@ -33,7 +33,6 @@ public class DatabaseHelper extends SQLiteOpenHelper {
                     "forecast_date TEXT NOT NULL," +
                     "temp_min REAL," +
                     "temp_max REAL," +
-                    "humidity INTEGER," +
                     "description TEXT," +
                     "icon_code TEXT," +
                     "timestamp INTEGER NOT NULL" +
@@ -60,7 +59,7 @@ public class DatabaseHelper extends SQLiteOpenHelper {
 
     @Override
     public void onUpgrade(SQLiteDatabase db, int oldVersion, int newVersion) {
-        // Estratégia simples para o projeto acadêmico.
+        // Estratégia simples adequada ao contexto acadêmico.
         db.execSQL("DROP TABLE IF EXISTS " + TABLE_CURRENT);
         db.execSQL("DROP TABLE IF EXISTS " + TABLE_FORECAST);
         onCreate(db);
