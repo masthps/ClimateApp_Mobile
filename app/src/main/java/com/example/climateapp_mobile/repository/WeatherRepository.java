@@ -30,7 +30,7 @@ public class WeatherRepository {
     private final ExecutorService executor = Executors.newSingleThreadExecutor();
 
     public interface WeatherCallback {
-        void onSuccess(WeatherEntity current, List<ForecastEntity> forecasts);
+        void onSuccess(WeatherEntity current, List<ForecastEntity> forecasts, boolean fromCache);
 
         void onError(String message);
     }
@@ -45,20 +45,20 @@ public class WeatherRepository {
         executor.execute(() -> {
             WeatherEntity cachedWeather = weatherDao.getCurrentWeather(cityName);
             if (cachedWeather != null && isCacheValid(cachedWeather.timestamp)) {
-                callback.onSuccess(cachedWeather, weatherDao.getForecasts(cityName));
+                callback.onSuccess(cachedWeather, weatherDao.getForecasts(cityName), false);
                 return;
             }
 
             try {
                 GeocodingResponse.Location location = fetchLocation(cityName);
                 if (location == null) {
-                    callback.onError("Cidade não encontrada.");
+                    callback.onError("Cidade não encontrada. Confira o nome digitado e tente novamente.");
                     return;
                 }
 
                 ForecastResponse response = fetchForecast(location);
                 if (!isForecastValid(response)) {
-                    callback.onError("A previsão recebida está incompleta.");
+                    callback.onError("Não foi possível carregar a previsão completa. Tente novamente em instantes.");
                     return;
                 }
 
@@ -68,11 +68,11 @@ public class WeatherRepository {
 
                 weatherDao.insertOrReplaceCurrentWeather(current);
                 weatherDao.insertForecasts(forecasts);
-                callback.onSuccess(current, forecasts);
+                callback.onSuccess(current, forecasts, false);
             } catch (IOException exception) {
                 returnCachedDataOrError(cityName, callback);
             } catch (RuntimeException exception) {
-                callback.onError("Não foi possível processar a previsão do tempo.");
+                callback.onError("Não foi possível processar os dados recebidos. Tente novamente.");
             }
         });
     }
@@ -154,9 +154,9 @@ public class WeatherRepository {
     private void returnCachedDataOrError(String cityName, WeatherCallback callback) {
         WeatherEntity cachedWeather = weatherDao.getCurrentWeather(cityName);
         if (cachedWeather != null) {
-            callback.onSuccess(cachedWeather, weatherDao.getForecasts(cityName));
+            callback.onSuccess(cachedWeather, weatherDao.getForecasts(cityName), true);
         } else {
-            callback.onError("Sem conexão e sem dados em cache.");
+            callback.onError("Sem conexão ou falha na busca. Não há previsão salva para esta cidade.");
         }
     }
 
